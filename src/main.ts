@@ -21,8 +21,7 @@ import { auth } from './services/auth';
 import { session } from './services/session';
 import { cafeStore } from './store/cafeStore';
 import type { LatLng, User } from './types';
-
-const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+import { $ } from './utils/dom';
 
 const searchPanel = $<EleiSearchPanel>('searchPanel');
 const addCafeBtn = $<HTMLElement>('addCafeBtn');
