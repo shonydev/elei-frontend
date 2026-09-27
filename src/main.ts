@@ -20,7 +20,7 @@ import { ApiError, UNAUTHORIZED_EVENT } from './services/api';
 import { auth } from './services/auth';
 import { session } from './services/session';
 import { cafeStore } from './store/cafeStore';
-import type { Cafe, LatLng, User } from './types';
+import type { LatLng, User } from './types';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
