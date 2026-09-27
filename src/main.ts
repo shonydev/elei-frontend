@@ -1,5 +1,4 @@
 import 'maplibre-gl/dist/maplibre-gl.css';
-import maplibregl from 'maplibre-gl';
 import './styles/global.css';
 
 import './components/search-panel';
@@ -8,7 +7,6 @@ import './components/place-bar';
 import './components/cafe-modal';
 import './components/login-screen';
 import './components/user-badge';
-import { EleiCafeMarker } from './components/cafe-marker';
 
 import type { EleiSearchPanel } from './components/search-panel';
 import type { EleiCafeModal, CafeSubmitDetail } from './components/cafe-modal';
@@ -16,6 +14,7 @@ import type { EleiLoginScreen, AuthSubmitDetail } from './components/login-scree
 import type { EleiUserBadge } from './components/user-badge';
 
 import { map, flyToPlace } from './map/map';
+import { CafeMapView } from './map/cafe-map-view';
 import { geocode } from './services/geocoding';
 import { ApiError, UNAUTHORIZED_EVENT } from './services/api';
 import { auth } from './services/auth';
@@ -33,6 +32,8 @@ const cafeModal = $<EleiCafeModal>('cafeModal');
 const loginScreen = $<EleiLoginScreen>('loginScreen');
 const userBadge = $<EleiUserBadge>('userBadge');
 
+const cafeMapView = new CafeMapView(map);
+
 const errorMessage = (e: unknown) => (e instanceof Error ? e.message : 'Ocurrió un error inesperado.');
 
 // ---------- Sesión y permisos ----------
@@ -42,7 +43,7 @@ const canEdit = () => currentUser?.role === 'admin';
 
 function showLogin(message = '') {
   currentUser = null;
-  clearMarkers();
+  cafeMapView.clear();
   resetPlacing();
   cafeModal.hidden = true;
   pendingLocation = null;
@@ -162,7 +163,7 @@ cafeModal.addEventListener('elei-cafe-submit', async (e) => {
   if (!pendingLocation || saving) return; // `saving` evita crear duplicados con doble toque
   saving = true;
   try {
-    renderCafe(await cafeStore.add({ name, photo, ...pendingLocation }));
+    cafeMapView.showCafe(await cafeStore.add({ name, photo, ...pendingLocation }), canEdit(), deleteCafe);
     cafeModal.hidden = true;
     pendingLocation = null;
   } catch (error) {
@@ -172,48 +173,24 @@ cafeModal.addEventListener('elei-cafe-submit', async (e) => {
   }
 });
 
-// ---------- Marcadores ----------
-const markers = new Map<string, maplibregl.Marker>();
-
-function renderCafe(cafe: Cafe) {
-  const el = new EleiCafeMarker();
-  el.cafe = cafe;
-
-  const popup = new maplibregl.Popup({ offset: [0, -60], closeButton: false }).setDOMContent(
-    el.createPopupContent(canEdit())
-  );
-  const marker = new maplibregl.Marker({ element: el, anchor: 'bottom' })
-    .setLngLat([cafe.lng, cafe.lat])
-    .setPopup(popup)
-    .addTo(map);
-
-  el.addEventListener('elei-cafe-delete', async (e) => {
-    const { id } = (e as CustomEvent<{ id: string }>).detail;
-    try {
-      await cafeStore.remove(id);
-    } catch (error) {
-      // 404 = ya no existe en el servidor: igual lo quitamos del mapa.
-      if (!(error instanceof ApiError && error.status === 404)) {
-        alert(`No se pudo eliminar: ${errorMessage(error)}`);
-        return;
-      }
-    }
-    marker.remove();
-    markers.delete(id);
-  });
-
-  markers.set(cafe.id, marker);
-}
-
-function clearMarkers() {
-  markers.forEach((marker) => marker.remove());
-  markers.clear();
+// ---------- Persistencia y coordinación de cafeterías ----------
+// Devuelve true cuando el marcador debe desaparecer (borrado correcto o ya inexistente).
+async function deleteCafe(id: string): Promise<boolean> {
+  try {
+    await cafeStore.remove(id);
+    return true;
+  } catch (error) {
+    // 404 = ya no existe en el servidor: igual lo quitamos del mapa.
+    if (error instanceof ApiError && error.status === 404) return true;
+    alert(`No se pudo eliminar: ${errorMessage(error)}`);
+    return false;
+  }
 }
 
 async function loadCafes() {
-  clearMarkers();
+  cafeMapView.clear();
   try {
-    (await cafeStore.list()).forEach(renderCafe);
+    (await cafeStore.list()).forEach((cafe) => cafeMapView.showCafe(cafe, canEdit(), deleteCafe));
   } catch (error) {
     // Si fue un 401, showLogin() ya se encargó; para otros errores avisamos en el panel.
     if (!(error instanceof ApiError && error.status === 401)) {
